@@ -142,7 +142,7 @@ if __name__ == "__main__":
 	if len(places) > 0:
 		# Fetch place-dependent notability results for all defined places.
 		try:
-			global_p_config = [p for p in config['places'] if p['id'] == '__global'][0]
+			global_p_config = [p for p in config['places'] if p['id'] == 'global'][0]
 		except IndexError:
 			global_p_config = {}
 		
@@ -150,7 +150,6 @@ if __name__ == "__main__":
 
 		# Output notability report.
 		f_notable.write(f"""<h{root_h_lvl} id="notable-species">Notable Species</h{root_h_lvl}>\n""")
-		notable_h_level = root_h_lvl
 		
 		notability_results = {}
 		for p_config in places:
@@ -183,6 +182,10 @@ if __name__ == "__main__":
 
 			# Update general notability
 			species.loc[notable_ix, 'notable'] = species.loc[notable_ix, 'notable'] | species.loc[notable_ix, f"{p_col}_notable"]
+			
+			# Clean up the species dataframe.
+			species = species.loc[~pd.isnull(species.loc[:, 'taxon_id']), :]
+			species.loc[:, 'taxon_id'] = species.loc[:, 'taxon_id'].astype(int)
 
 			f_notable.write(f"""<h{root_h_lvl+1} id="{p_col}"><a href="#{p_col}">{p_config['name']}</a></h{root_h_lvl+1}>\n""")
 
@@ -192,9 +195,18 @@ if __name__ == "__main__":
 			for i, tax_row in species.query(f"{p_col}_first").sort_values('scientific_name', ascending=True).iterrows():
 				tid = tax_row['taxon_id']
 				taxa_url = f"https://inaturalist.org/taxa/{tid}"
-				first_obs = df.loc[df.loc[:, 'taxon_id'] == tid].sort_values('time_observed_at', ascending=True).iloc[0, :]
 				
-				f_notable.write(f"""<li><a href="{taxa_url}"><b>{species_name(tax_row, locale=locale)}</b></a>: <a href="https://www.inaturalist.org/observations/{first_obs['id']}">first observation by @{first_obs['user_login']}</a></li>\n""")
+				try:
+					# Look for an RG observation first, and prioritise that.
+					first_obs = df.loc[(df.loc[:, 'taxon_id'] == tid) & df.loc[:, 'quality_grade'] == 'research', :].sort_values('time_observed_at', ascending=True).iloc[0, :]
+				except IndexError:
+					# Fall back to using the first non-RG observation if no RG observations are available.
+					first_obs = df.loc[df.loc[:, 'taxon_id'] == tid, :].sort_values('time_observed_at', ascending=True).iloc[0, :]
+				
+				if first_obs['quality_grade'] == 'research':
+					f_notable.write(f"""<li><a href="{taxa_url}"><b>{species_name(tax_row, locale=locale)}</b></a>: <a href="https://www.inaturalist.org/observations/{first_obs['id']}">first observation by @{first_obs['user_login']}</a></li>\n""")
+				else:
+					f_notable.write(f"""<li><a href="{taxa_url}">{species_name(tax_row, locale=locale)}</a>: <a href="https://www.inaturalist.org/observations/{first_obs['id']}">first observation by @{first_obs['user_login']}</a></li>\n""")
 			f_notable.write(f"</ul>\n")
 			
 			# Then, report all other notable observations.
@@ -205,7 +217,23 @@ if __name__ == "__main__":
 				if p_config['id'] != 'global':
 					obs_url = f"{obs_url}&amp;place_id={pids}"
 				taxa_url = f"https://inaturalist.org/taxa/{row['taxon_id']}"
-				f_notable.write(f'''<li><a href="{taxa_url}"><b>{species_name(row, locale=locale)}</b></a>: <a href="{obs_url}">{int(row[f'{p_col}_observation_count'])} observations</a></li>\n''')
+				
+				rg_observers = list(df.loc[(df.loc[:, 'taxon_id'] == row['taxon_id']) & (df.loc[:, 'quality_grade'] == 'research'), 'user_login'].drop_duplicates())
+				
+				if len(rg_observers) > 0:
+					f_notable.write(f'''<li><a href="{taxa_url}"><b>{species_name(row, locale=locale)}</b></a> observed by: ''')
+				else:
+					f_notable.write(f'''<li><a href="{taxa_url}">{species_name(row, locale=locale)}</a> observed by: ''')
+				# Report a list of people who observed this species.
+				observers = list(df.loc[df.loc[:, 'taxon_id'] == row['taxon_id'], :].sort_values('time_observed_at', ascending=True).loc[:, 'user_login'].drop_duplicates())
+				for i, observer in enumerate(observers):
+					if observer in rg_observers:
+						f_notable.write(f''' <b><a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={row['taxon_id']}&project_id={config['project']}">@{observer}</a></b>''')
+					else:
+						f_notable.write(f''' <a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={row['taxon_id']}&project_id={config['project']}">@{observer}</a>''')
+					if i+1 < len(observers):
+						f_notable.write(',')  # No comma after the last observer in the list.
+				f_notable.write(f''' (<a href="{obs_url}">{int(row[f'{p_col}_observation_count'])} total</a>)</li>\n''')
 			f_notable.write(f"</ul>\n")
 	f_notable.close()
 
