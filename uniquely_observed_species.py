@@ -22,8 +22,11 @@ def fetch_all_results(api_url, delay=1.0, ttl=(60 * 60 * 24)):
 	results = []
 	page = 1
 	while (total_results is None) or len(results) < total_results:
-		api_url = f"{api_url}&page={page}&ttl={ttl}"
-		jresp = requests.get(api_url).json()
+		req_url = f"{api_url}&page={page}&ttl={ttl}"
+		print(f"GET {req_url}")
+		resp = requests.get(req_url)
+		resp.raise_for_status()
+		jresp = resp.json()
 		if total_results is None:
 			total_results = jresp['total_results']
 		results.extend(jresp['results'])
@@ -59,6 +62,13 @@ if __name__ == "__main__":
 		os.mkdir(os.path.join('data', args.analysis, 'output', 'current'))
 	except:
 		pass
+	
+	# Ensure a context query string exists.
+	if 'context_query' not in config:
+		if 'project' in config:
+			config['context_query'] = f"project_id={config['project']}"
+		else:
+			config['context_query'] = ''
 	
 	# Flesh-out places config.
 	for p_config in config.get('places', []):
@@ -117,7 +127,7 @@ if __name__ == "__main__":
 			if observer not in unique_observations:
 				unique_observations[observer] = []
 
-			species.loc[tid, 'uniquely_observed']	= True
+			species.loc[tid, 'uniquely_observed'] = True
 
 			unique_observations[observer].append({
 				'id': tid,
@@ -130,7 +140,7 @@ if __name__ == "__main__":
 			if rg_observer not in unique_observations:
 				unique_observations[rg_observer] = []
 			
-			species.loc[tid, 'uniquely_observed']	= True
+			species.loc[tid, 'uniquely_observed'] = True
 
 			unique_observations[rg_observer].append({
 				'id': tid,
@@ -161,6 +171,8 @@ if __name__ == "__main__":
 
 			# Create place-specific first and notability columns.
 			if p_config['id'] != 'global':
+				# TODO: use each stage to whittle down the list of potentially notable taxon, to reduce the
+				# number of queries required for the larger places.
 				for tids in chunks(potentially_notable_taxon_ids, 100):
 					ctids = urllib.parse.quote_plus(','.join([str(int(t)) for t in tids]))
 					notability_results[p_col].extend(fetch_all_results(f"https://api.inaturalist.org/v1/observations/species_counts?place_id={pids}&taxon_id={ctids}&rank=species&locale={config.get('locale', 'en')}"))
@@ -228,9 +240,9 @@ if __name__ == "__main__":
 				observers = list(df.loc[df.loc[:, 'taxon_id'] == row['taxon_id'], :].sort_values('time_observed_at', ascending=True).loc[:, 'user_login'].drop_duplicates())
 				for i, observer in enumerate(observers):
 					if observer in rg_observers:
-						f_notable.write(f''' <b><a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={row['taxon_id']}&project_id={config['project']}">@{observer}</a></b>''')
+						f_notable.write(f''' <b><a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={row['taxon_id']}&{config['context_query']}">@{observer}</a></b>''')
 					else:
-						f_notable.write(f''' <a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={row['taxon_id']}&project_id={config['project']}">@{observer}</a>''')
+						f_notable.write(f''' <a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={row['taxon_id']}&{config['context_query']}">@{observer}</a>''')
 					if i+1 < len(observers):
 						f_notable.write(',')  # No comma after the last observer in the list.
 				f_notable.write(f''' (<a href="{obs_url}">{int(row[f'{p_col}_observation_count'])} total</a>)</li>\n''')
@@ -262,7 +274,7 @@ if __name__ == "__main__":
 			t = species.loc[tid]
 
 			if config.get('project'):
-				taxa_url = f"https://www.inaturalist.org/observations?taxon_id={tid}&amp;project_id={config['project']}"
+				taxa_url = f"https://www.inaturalist.org/observations?taxon_id={tid}&amp;{config['context_query']}"
 			else:
 				taxa_url = f'https://www.inaturalist.org/taxa/{tid}'
 			
