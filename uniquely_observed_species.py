@@ -10,6 +10,8 @@ import time
 import urllib.parse
 import yaml
 import IPython
+import hashlib
+import json
 
 """
 
@@ -17,27 +19,47 @@ import IPython
 By Barnaby Walters waterpigs.co.uk
 """
 
-def fetch_all_results(api_url, delay=1.0, ttl=(60 * 60 * 24)):
+def fetch_all_results(api_url, delay=1.0, ttl=(60 * 60 * 24), cache_location=None):
 	total_results = None
 	results = []
 	page = 1
+	cache_path = None
+	fetched_from_cache = False
 	while (total_results is None) or len(results) < total_results:
 		req_url = f"{api_url}&page={page}&ttl={ttl}"
-		print(f"GET {req_url}")
-		resp = requests.get(req_url)
-		resp.raise_for_status()
-		jresp = resp.json()
+		
+		try:
+			if cache_location is None:
+				raise Exception()
+			cache_path = os.path.join(cache_location, f"{hashlib.md5(req_url.encode('utf-8')).hexdigest()}.json")
+			with open(cache_path) as fp:
+				jresp = json.load(fp)
+				fetched_from_cache = True
+				print('c', end='', flush=True)
+		except:
+			resp = requests.get(req_url)
+			resp.raise_for_status()
+			fetched_from_cache = False
+			jresp = resp.json()
+			#print(req_url)
+			print('.', end='', flush=True)
+			
+			if cache_path is not None:
+				with open(cache_path, 'w') as fp:
+					json.dump(jresp, fp)
+			
 		if total_results is None:
 			total_results = jresp['total_results']
 		results.extend(jresp['results'])
 		page += 1
-		time.sleep(delay)
+		if not fetched_from_cache:
+			time.sleep(delay)
 	return results
 
 def species_name(t, locale='en'):
-	if not pd.isnull(t[f'common_name_{locale}']):
+	if not pd.isnull(t[f'common_name_{locale}']) and t['scientific_name'] != t[f'common_name_{locale}']:
 		return f"<i>{t['scientific_name']}</i> ({t[f'common_name_{locale}']})"
-	elif not pd.isnull(t['common_name']):
+	elif not pd.isnull(t['common_name']) and t['scientific_name'] != t['common_name']:
 		return f"<i>{t['scientific_name']}</i> ({t['common_name']})"
 	else:
 		return f"<i>{t['scientific_name']}</i>"
@@ -97,18 +119,23 @@ if __name__ == "__main__":
 
 	# Filter out casual observations.
 	df = df.query('quality_grade != "casual"')
+	
+	# Only include observations with a species-level identification.
+	df = df.dropna(subset=['taxon_species_name'])
 
 	# Create a local species reference from the dataframe.
-	species = df.loc[:, ('taxon_id', 'scientific_name', 'common_name')].drop_duplicates()
+	species = df.loc[:, ('taxon_id', 'scientific_name', 'common_name', 'species_guess')].drop_duplicates(subset=['taxon_id'])
+	# iNat export common_name is in english, at least for me.
+	species.loc[:, 'common_name_en'] = species.loc[:, 'common_name']
+	# species_guess is usually in the locale we want for some reason, so use that instead of common name.
+	species.loc[:, 'common_name'] = species.loc[:, 'species_guess']
 	species = species.set_index(species.loc[:, 'taxon_id'])
-	species.loc[:, 'uniquely_observed']	= False
+	species.loc[:, 'uniquely_observed'] = False
 	species.loc[:, 'global_observation_count'] = np.nan
 	species.loc[:, 'project_observation_count'] = np.nan
 	# Other place observation counts follow pattern {place_id}_observation_count
 	species.loc[:, 'notable_sort_order'] = np.nan
 	species.loc[:, 'notable'] = False
-	# iNat export common_name is in english, at least for me.
-	species.loc[:, 'common_name_en'] = species.loc[:, 'common_name']
 	if config.get('locale') and config['locale'] != 'en':
 		species.loc[:, f"common_name_{config['locale']}"] = np.nan
 	
@@ -156,8 +183,10 @@ if __name__ == "__main__":
 		except IndexError:
 			global_p_config = {}
 		
-		potentially_notable_taxon_ids = list(species.loc[species.loc[:, 'project_observation_count'] <= global_p_config.get('observation_threshold', 5), 'taxon_id'])
-
+		potentially_notable_taxon_ids = list(species.loc[species.loc[:, 'project_observation_count'] <= global_p_config.get('observation_threshold', 5), 'taxon_id'].dropna())
+		
+		print(f"Found {len(potentially_notable_taxon_ids)} potentially notable taxa")
+		
 		# Output notability report.
 		f_notable.write(f"""<h{root_h_lvl} id="notable-species">Notable Species</h{root_h_lvl}>\n""")
 		
@@ -175,7 +204,7 @@ if __name__ == "__main__":
 				# number of queries required for the larger places.
 				for tids in chunks(potentially_notable_taxon_ids, 100):
 					ctids = urllib.parse.quote_plus(','.join([str(int(t)) for t in tids]))
-					notability_results[p_col].extend(fetch_all_results(f"https://api.inaturalist.org/v1/observations/species_counts?place_id={pids}&taxon_id={ctids}&rank=species&locale={config.get('locale', 'en')}"))
+					notability_results[p_col].extend(fetch_all_results(f"https://api.inaturalist.org/v1/observations/species_counts?place_id={pids}&taxon_id={ctids}&rank=species&locale={config.get('locale', 'en')}", cache_location='data/_cache'))
 				
 				for nr in notability_results[p_col]:
 					species.loc[nr['taxon']['id'], [f"{p_col}_observation_count", 'global_observation_count', f"common_name_{config.get('locale', 'en')}"]] = [
@@ -216,9 +245,9 @@ if __name__ == "__main__":
 					first_obs = df.loc[df.loc[:, 'taxon_id'] == tid, :].sort_values('time_observed_at', ascending=True).iloc[0, :]
 				
 				if first_obs['quality_grade'] == 'research':
-					f_notable.write(f"""<li><a href="{taxa_url}"><b>{species_name(tax_row, locale=locale)}</b></a>: <a href="https://www.inaturalist.org/observations/{first_obs['id']}">first observation by @{first_obs['user_login']}</a></li>\n""")
+					f_notable.write(f"""<li class="filterable"><a href="{taxa_url}"><b>{species_name(tax_row, locale=locale)}</b></a>: <a href="https://www.inaturalist.org/observations/{first_obs['id']}">first observation by @{first_obs['user_login']}</a></li>\n""")
 				else:
-					f_notable.write(f"""<li><a href="{taxa_url}">{species_name(tax_row, locale=locale)}</a>: <a href="https://www.inaturalist.org/observations/{first_obs['id']}">first observation by @{first_obs['user_login']}</a></li>\n""")
+					f_notable.write(f"""<li class="filterable"><a href="{taxa_url}">{species_name(tax_row, locale=locale)}</a>: <a href="https://www.inaturalist.org/observations/{first_obs['id']}">first observation by @{first_obs['user_login']}</a></li>\n""")
 			f_notable.write(f"</ul>\n")
 			
 			# Then, report all other notable observations.
@@ -233,9 +262,9 @@ if __name__ == "__main__":
 				rg_observers = list(df.loc[(df.loc[:, 'taxon_id'] == row['taxon_id']) & (df.loc[:, 'quality_grade'] == 'research'), 'user_login'].drop_duplicates())
 				
 				if len(rg_observers) > 0:
-					f_notable.write(f'''<li><a href="{taxa_url}"><b>{species_name(row, locale=locale)}</b></a> observed by: ''')
+					f_notable.write(f'''<li class="filterable"><a href="{taxa_url}"><b>{species_name(row, locale=locale)}</b></a> observed by: ''')
 				else:
-					f_notable.write(f'''<li><a href="{taxa_url}">{species_name(row, locale=locale)}</a> observed by: ''')
+					f_notable.write(f'''<li class="filterable"><a href="{taxa_url}">{species_name(row, locale=locale)}</a> observed by: ''')
 				# Report a list of people who observed this species.
 				observers = list(df.loc[df.loc[:, 'taxon_id'] == row['taxon_id'], :].sort_values('time_observed_at', ascending=True).loc[:, 'user_login'].drop_duplicates())
 				for i, observer in enumerate(observers):
@@ -266,7 +295,7 @@ if __name__ == "__main__":
 	f_unique.write(f'<h{root_h_lvl+1} id="observers">Observers</h{root_h_lvl+1}>\n')
 
 	for observer, taxa in sorted_observations:
-		f_unique.write(f"""\n\n<h{root_h_lvl+2} id="{observer}"><a id="{observer}" href="https://www.inaturalist.org/people/{observer}">@{observer}</a> ({len(taxa)} taxa):</h{root_h_lvl+2}>\n""")
+		f_unique.write(f"""\n\n<div class="filterable"><h{root_h_lvl+2} id="{observer}"><a id="{observer}" href="https://www.inaturalist.org/people/{observer}">@{observer}</a> ({len(taxa)} taxa):</h{root_h_lvl+2}>\n""")
 		f_unique.write('<ul>\n')
 
 		for tobv in sorted(taxa, key=lambda t: species.loc[t['id']]['scientific_name']):
@@ -297,8 +326,8 @@ if __name__ == "__main__":
 			if highest_ranked_first:
 				additional_text = f"{additional_text} • {highest_ranked_first}"
 
-			f_unique.write(f"""<li class="{' '.join(classes)}"><a href="{taxa_url}">{rgb}{species_name(t, locale=locale)}{rge}</a>{others}{additional_text}</li>\n""")
-		f_unique.write("</ul>\n")
+			f_unique.write(f"""<li class="filterable {' '.join(classes)}"><a href="{taxa_url}">{rgb}{species_name(t, locale=locale)}{rge}</a>{others}{additional_text}</li>\n""")
+		f_unique.write("</ul></div>\n")
 	f_unique.close()
 
 	species.to_csv(os.path.join('data', args.analysis, 'output', 'current', 'species.csv'), index=None)

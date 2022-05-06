@@ -5,22 +5,22 @@ import json
 import time
 import requests
 
+MAX_OBSERVATION_COUNT = 3
 API_DELAY = 1.0
 API_TTL = 60 * 60 * 24
-MAX_OBSERVATION_COUNT = 3
 
 def fetch_all_results(api_url, delay=1.0, ttl=(60 * 60 * 24)):
 	total_results = None
 	results = []
 	page = 1
 	while (total_results is None) or len(results) < total_results:
-		api_url = f"{api_url}&page={page}&ttl={API_TTL}"
-		jresp = requests.get(api_url).json()
+		curr_url = f"{api_url}&page={page}&ttl={ttl}"
+		jresp = requests.get(curr_url).json()
 		if total_results is None:
 			total_results = jresp['total_results']
-		species.extend(jresp['results'])
+		results.extend(jresp['results'])
 		page += 1
-		time.sleep(API_DELAY)
+		time.sleep(delay)
 	return results
 
 if __name__ == "__main__":
