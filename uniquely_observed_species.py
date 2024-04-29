@@ -84,6 +84,10 @@ if __name__ == "__main__":
 		os.mkdir(os.path.join('data', args.analysis, 'output', 'current'))
 	except:
 		pass
+	try:
+		os.mkdir(os.path.join('data', '_cache'))
+	except:
+		pass
 	
 	# Ensure a context query string exists.
 	if 'context_query' not in config:
