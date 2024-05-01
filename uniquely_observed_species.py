@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import requests
 import time
+import datetime
 import urllib.parse
 import yaml
 import IPython
@@ -112,8 +113,130 @@ if __name__ == "__main__":
 	
 	locale = config.get('locale', 'en')
 
-	f_unique = open(os.path.join('data', args.analysis, 'output', 'current', 'unique.html'), 'w')
-	f_notable = open(os.path.join('data', args.analysis, 'output', 'current', 'notable.html'), 'w')
+	f_output = open(os.path.join('data', args.analysis, 'output', 'current', 'index.html'), 'w')
+
+	filter_js = """
+<script>
+(function () {
+    var searchInput = document.querySelector('.filter-observations input');
+    searchInput.addEventListener('keyup', function (event) {
+        document.querySelectorAll('.filterable').forEach(function (el) {
+            if (el.innerText.search(searchInput.value) != -1) {
+                el.style.display = '';
+            } else {
+                el.style.display = 'none';
+            }
+        });
+    });
+}());
+</script>
+"""
+
+	styles = """
+<style>
+
+body {
+	font-family: Whitney, "Trebuchet MS", Arial, sans-serif;
+}
+
+.observations-container {
+	display: flex;
+	flex-wrap: wrap;
+	list-style: none;
+}
+
+.observation {
+	margin: 0 0.5em 0.5em 0;
+	padding: 0.5em;
+	background-color: #f1f1f1;
+	max-width: 12em;
+	text-align: center;
+}
+
+.observation .name {
+	display: block;
+	margin-bottom: 0.5em;
+	text-align: center;
+}
+
+.observation img {
+	display: block;
+	height: 10em;
+	max-width: 100%;
+	margin: 0 auto;
+}
+</style>
+"""
+
+	f_output.write(f"""
+{styles}
+								
+<h{root_h_lvl}>{config['name']}</h{root_h_lvl}>
+								
+<p>Last updated: {datetime.datetime.now().strftime('%Y-%m-%d')}</p>
+
+<p>Species in <b>bold</b> are ones for which the given observer has one or more research-grade observations.</p>
+
+<p>If only one person has RG observations of a species, but other people have observations which need ID, the number of needs-ID observers are indicated in parentheses. For example:</p>
+
+<dl id="key" style="padding: 0.5em;background: rgba(240, 240, 240, 0.5);">
+  <dt><i>Centranthus ruber</i> (Red Valerian)</dt>
+  <dd style="margin-left: 1em;">means the observer is the only one to have observed that species, but none of their observations are research grade.</dt>
+  
+  <dt><b><i>Cercopis arcuata</i></b></dt>
+  <dd style="margin-left: 1em;">means the observer is the only one to have observed that species, and one or more of those observations are research grade.</dd>
+  
+  <dt><b><i>Polydesmus complanatus</i> (Flat-backed Millipede)</b> (1)</dt>
+  <dd style="margin-left: 1em;">means that the observer and one other person have observed that species, but only the listed observer has research-grade observations of it.</dd>
+</dl>
+
+<h{root_h_lvl+1}>Table of Contents</h{root_h_lvl+1}>
+
+<ol>
+    <li>
+        <a href="#notable-species">Notable Species</a>
+        <ol>
+            <li>
+                <a href="#wien">Wien</a>
+                <ol>
+                    <li><a href="#wien-firsts">First Observations</a></li>
+                    <li><a href="#wien-notable">Notable Observations</a></li>
+                </ol>
+            </li>
+            <li>
+                <a href="#at">Austria</a>
+                <ol>
+                    <li><a href="#at-firsts">First Observations</a></li>
+                    <li><a href="#at-notable">Notable Observations</a></li>
+                </ol>
+            </li>
+            <li>
+                <a href="#eu">Europe</a>
+                <ol>
+                    <li><a href="#eu-firsts">First Observations</a></li>
+                    <li><a href="#eu-notable">Notable Observations</a></li>
+                </ol>
+            </li>
+            <li>
+                <a href="#global">iNaturalist Global</a>
+                <ol>
+                    <li><a href="#global-firsts">First Observations</a></li>
+                    <li><a href="#global-notable">Notable Observations</a></li>
+                </ol>
+            </li>
+        </ol>
+    </li>
+    <li><a href="#observers">Unique Taxa per Observer</a></li>
+</ol>
+
+<!-- Not a form because submitting it makes no sense -->
+
+<div class="filter-observations">
+<label>Search: <input type="text" />
+</div>
+
+{filter_js}
+""")
 
 	unique_observations = {}
 
@@ -126,6 +249,9 @@ if __name__ == "__main__":
 	
 	# Only include observations with a species-level identification.
 	df = df.dropna(subset=['taxon_species_name'])
+
+	# Create thumbnail image URL column
+	df.loc[:, 'image_url_smol'] = df.image_url.str.replace('medium.jpeg', 'thumb.jpeg')
 
 	# Create a local species reference from the dataframe.
 	species = df.loc[:, ('taxon_id', 'scientific_name', 'common_name', 'species_guess')].drop_duplicates(subset=['taxon_id'])
@@ -191,8 +317,7 @@ if __name__ == "__main__":
 		
 		print(f"Found {len(potentially_notable_taxon_ids)} potentially notable taxa")
 		
-		# Output notability report.
-		f_notable.write(f"""<h{root_h_lvl} id="notable-species">Notable Species</h{root_h_lvl}>\n""")
+		f_output.write(f"""<h{root_h_lvl+1} id="notable-species">Notable Species</h{root_h_lvl+1}>\n\n""")
 		
 		notability_results = {}
 		for p_config in places:
@@ -232,11 +357,11 @@ if __name__ == "__main__":
 			species = species.loc[~pd.isnull(species.loc[:, 'taxon_id']), :]
 			species.loc[:, 'taxon_id'] = species.loc[:, 'taxon_id'].astype(int)
 
-			f_notable.write(f"""<h{root_h_lvl+1} id="{p_col}"><a href="#{p_col}">{p_config['name']}</a></h{root_h_lvl+1}>\n""")
+			f_output.write(f"""<h{root_h_lvl+2} id="{p_col}"><a href="#{p_col}">{p_config['name']}</a></h{root_h_lvl+2}>\n""")
 
 			# Report firsts first (NPI).
-			f_notable.write(f"""<h{root_h_lvl+2} id="{p_col}-firsts"><a href="#{p_col}-firsts">First Observations</a> ({species.query(f"{p_col}_first").shape[0]})</h{root_h_lvl+2}>\n""")
-			f_notable.write(f"<ul>\n")
+			f_output.write(f"""<h{root_h_lvl+3} id="{p_col}-firsts"><a href="#{p_col}-firsts">First Observations</a> ({species.query(f"{p_col}_first").shape[0]})</h{root_h_lvl+3}>\n""")
+			f_output.write(f"""<ul class="observations-container">\n""")
 			for i, tax_row in species.query(f"{p_col}_first").sort_values('scientific_name', ascending=True).iterrows():
 				tid = tax_row['taxon_id']
 				taxa_url = f"https://inaturalist.org/taxa/{tid}"
@@ -248,15 +373,13 @@ if __name__ == "__main__":
 					# Fall back to using the first non-RG observation if no RG observations are available.
 					first_obs = df.loc[df.loc[:, 'taxon_id'] == tid, :].sort_values('time_observed_at', ascending=True).iloc[0, :]
 				
-				if first_obs['quality_grade'] == 'research':
-					f_notable.write(f"""<li class="filterable"><a href="{taxa_url}"><b>{species_name(tax_row, locale=locale)}</b></a>: <a href="https://www.inaturalist.org/observations/{first_obs['id']}">first observation by @{first_obs['user_login']}</a></li>\n""")
-				else:
-					f_notable.write(f"""<li class="filterable"><a href="{taxa_url}">{species_name(tax_row, locale=locale)}</a>: <a href="https://www.inaturalist.org/observations/{first_obs['id']}">first observation by @{first_obs['user_login']}</a></li>\n""")
-			f_notable.write(f"</ul>\n")
+				rg_el = 'b' if first_obs['quality_grade'] == 'research' else 'span'
+				f_output.write(f"""<li class="observation filterable"><a class="name" href="{taxa_url}"><{rg_el}>{species_name(tax_row, locale=locale)}</{rg_el}></a> <a href="https://www.inaturalist.org/observations/{first_obs['id']}"><img class="observation-thumbnail" src="{first_obs['image_url_smol']}" alt="" /> first observation by @{first_obs['user_login']}</a></li>\n""")
+			f_output.write(f"</ul>\n")
 			
 			# Then, report all other notable observations.
-			f_notable.write(f"""<h{root_h_lvl+2} id="{p_col}-notable"><a href="#{p_col}-notable">Notable Observations</a> ({species.query(f'{p_col}_notable & not {p_col}_first').shape[0]})</h{root_h_lvl+2}>\n""")
-			f_notable.write(f"<ul>\n")
+			f_output.write(f"""<h{root_h_lvl+3} id="{p_col}-notable"><a href="#{p_col}-notable">Notable Observations</a> ({species.query(f'{p_col}_notable & not {p_col}_first').shape[0]})</h{root_h_lvl+3}>\n""")
+			f_output.write(f"<ul>\n")
 			for i, row in species.query(f'{p_col}_notable & not {p_col}_first').sort_values(f'{p_col}_observation_count', ascending=True).iterrows():
 				obs_url = f"https://www.inaturalist.org/observations?taxon_id={row['taxon_id']}"
 				if p_config['id'] != 'global':
@@ -266,41 +389,31 @@ if __name__ == "__main__":
 				rg_observers = list(df.loc[(df.loc[:, 'taxon_id'] == row['taxon_id']) & (df.loc[:, 'quality_grade'] == 'research'), 'user_login'].drop_duplicates())
 				
 				if len(rg_observers) > 0:
-					f_notable.write(f'''<li class="filterable"><a href="{taxa_url}"><b>{species_name(row, locale=locale)}</b></a> observed by: ''')
+					f_output.write(f'''<li class="filterable"><a href="{taxa_url}"><b>{species_name(row, locale=locale)}</b></a> observed by: ''')
 				else:
-					f_notable.write(f'''<li class="filterable"><a href="{taxa_url}">{species_name(row, locale=locale)}</a> observed by: ''')
+					f_output.write(f'''<li class="filterable"><a href="{taxa_url}">{species_name(row, locale=locale)}</a> observed by: ''')
 				# Report a list of people who observed this species.
 				observers = list(df.loc[df.loc[:, 'taxon_id'] == row['taxon_id'], :].sort_values('time_observed_at', ascending=True).loc[:, 'user_login'].drop_duplicates())
 				for i, observer in enumerate(observers):
 					if observer in rg_observers:
-						f_notable.write(f''' <b><a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={row['taxon_id']}&{config['context_query']}">@{observer}</a></b>''')
+						f_output.write(f''' <b><a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={row['taxon_id']}&{config['context_query']}">@{observer}</a></b>''')
 					else:
-						f_notable.write(f''' <a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={row['taxon_id']}&{config['context_query']}">@{observer}</a>''')
+						f_output.write(f''' <a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={row['taxon_id']}&{config['context_query']}">@{observer}</a>''')
 					if i+1 < len(observers):
-						f_notable.write(',')  # No comma after the last observer in the list.
-				f_notable.write(f''' (<a href="{obs_url}">{int(row[f'{p_col}_observation_count'])} total</a>)</li>\n''')
-			f_notable.write(f"</ul>\n")
-	f_notable.close()
+						f_output.write(',')  # No comma after the last observer in the list.
+				f_output.write(f''' (<a href="{obs_url}">{int(row[f'{p_col}_observation_count'])} total</a>)</li>\n''')
+			f_output.write(f"</ul>\n")
 
 	# Output unique observation report.
 	sorted_observations = sorted(unique_observations.items(), key=lambda t: len(t[1]), reverse=True)
 
-	f_unique.write(f"""<h{root_h_lvl} id="unique">Uniquely Observed Species</h{root_h_lvl}>\n""")
-	f_unique.write(f"<p>{sum([len(t) for _, t in sorted_observations])} taxa uniquely observed by {len(sorted_observations)} observers.</p>\n")
-	
-	f_unique.write('<p>\n')
-	for observer, _ in sorted_observations:
-		f_unique.write(f"@{observer} \n")
-	f_unique.write('</p>\n')
+	f_output.write(f'<h{root_h_lvl+1} id="observers">Observers</h{root_h_lvl+1}>\n')
 
-	f_unique.write('<p><b>bold</b> species are ones for which the given observer has one or more research-grade observations.</p>\n')
-	f_unique.write('<p>If only one person has RG observations of a species, but other people have observations which need ID, the number of needs-ID observers are indicated in parentheses.\n')
-
-	f_unique.write(f'<h{root_h_lvl+1} id="observers">Observers</h{root_h_lvl+1}>\n')
+	f_output.write(f"<p>{sum([len(t) for _, t in sorted_observations])} taxa uniquely observed by {len(sorted_observations)} observers.</p>\n")
 
 	for observer, taxa in sorted_observations:
-		f_unique.write(f"""\n\n<div class="filterable"><h{root_h_lvl+2} id="{observer}"><a id="{observer}" href="https://www.inaturalist.org/people/{observer}">@{observer}</a> ({len(taxa)} taxa):</h{root_h_lvl+2}>\n""")
-		f_unique.write('<ul>\n')
+		f_output.write(f"""\n\n<div class="filterable"><h{root_h_lvl+2} id="{observer}"><a id="{observer}" href="https://www.inaturalist.org/people/{observer}">@{observer}</a> ({len(taxa)} taxa):</h{root_h_lvl+2}>\n""")
+		f_output.write('<ul>\n')
 
 		for tobv in sorted(taxa, key=lambda t: species.loc[t['id']]['scientific_name']):
 			tid = tobv['id']
@@ -330,9 +443,9 @@ if __name__ == "__main__":
 			if highest_ranked_first:
 				additional_text = f"{additional_text} • {highest_ranked_first}"
 
-			f_unique.write(f"""<li class="filterable {' '.join(classes)}"><a href="{taxa_url}">{rgb}{species_name(t, locale=locale)}{rge}</a>{others}{additional_text}</li>\n""")
-		f_unique.write("</ul></div>\n")
-	f_unique.close()
+			f_output.write(f"""<li class="filterable {' '.join(classes)}"><a href="{taxa_url}">{rgb}{species_name(t, locale=locale)}{rge}</a>{others}{additional_text}</li>\n""")
+		f_output.write("</ul></div>\n")
+	f_output.close()
 
 	species.to_csv(os.path.join('data', args.analysis, 'output', 'current', 'species.csv'), index=None)
 
