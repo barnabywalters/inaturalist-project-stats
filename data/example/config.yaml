@@ -1,0 +1,42 @@
+# Example Configuration File
+
+# Human-readable title for the report
+name: City Nature Challenge YYYY Your City Name Here!
+
+# Name of the iNaturalist observation export CSV file in the current project folder
+file: observations-321378.csv
+
+# ID of the iNaturalist Project to be analysed
+project: city-nature-challenge-2024-your-city-name-or-whatever
+
+# Optional locale (i.e. country/language code, default en = English) for common names (when available)
+locale: de
+
+# The HTML header level of the highest headers in the analysis output.
+root_header_level: 1
+
+# A list of places to search for first and notable observations in.
+# Places MUST be in smallest to biggest order, id: global MUST be last in list. The example follows the convention
+# I use for the Vienna report of City, Country, Continent, Global, each with suitable notability thresholds. You can
+# add more or less as you wish.
+places:
+  - # Place ID
+    id: '129695'
+    # “slug” version of the place name, used internally in column headers, and in the output as fragment IDs for inter-document links.
+    col: wien
+    # The threshold below which observations are considered “notable” for this location
+    observation_threshold: 5
+    # Text shown next to observations in personal lists to additionally indicate that it was the first observation at this geo level
+    first_text: First local iNat observation!
+  - id: '8057'
+    col: at
+    observation_threshold: 5
+    first_text: First national iNat observation!
+  - id: '97391'
+    col: eu
+    observation_threshold: 10
+    first_text: First European iNat observation!
+  - id: global
+    observation_threshold: 10
+    name: 'iNaturalist Global'
+    first_text: First iNaturalist observation!

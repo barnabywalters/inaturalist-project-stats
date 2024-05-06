@@ -13,11 +13,39 @@ import yaml
 import IPython
 import hashlib
 import json
+import html
 
+DESCRIPTION = """
+Given a config file with information about a project (example in data/example/config.yaml) and an
+iNat observation export CSV file, produce an HTML report and CSV file providing information about
+which of the observations are firsts or notable within specified places, as well as a list of taxa
+which were only observed in the project by a single person.
+
+Prerequesites:
+* A working python 3.12 installation
+* Installing dependencies with `pip install -r requirements.txt`, optionally in a virtualenv
+
+Usage:
+1. Copy/paste data/example/ and replace example with a project ID of your choice (e.g. wien-2024)
+2. Go to https://www.inaturalist.org/observations/export and request an export of data from your project.
+   You’ll need to additionally select the taxon_species_name column for the analysis to work properly.
+3. While the export is preparing, set up the config file in data/your-project/config.yaml appropriately. The 
+   comments in the example should explain everything sufficiently
+4. Once your iNat export is ready, extract the CSV from the ZIP file and move it into your project folder.
+   Change the observations filename in your config file to match it.
+5. Run `python notable.py your-project`. On the first run, the script will make many requests to the iNaturalist
+   API, each indicated by a . in the output. These are staggered with a short break between each one to respect
+   rate limits. The responses to these requests are cached in data/_cache and will be loaded from there on future
+   runs, indicated by a c in the output. Note that this caching is intended for re-exporting the same report several
+   times while e.g. fixing formatting errors or making changes to the script. When exporting with new data, it is
+   advisable to delete the cache and fetch fresh data.
+6. Once the script has finished running, run `open data/your-project/output/index.html` to see the results in your
+   browser. The species.csv file in the project folder contains much of the internal information used for the 
+   analysis in case you want to work with it further yourself.
 """
-
-
-By Barnaby Walters waterpigs.co.uk
+DESRIPTION_EPILOGUE = """
+Source: https://github.com/barnabywalters/inaturalist-project-stats
+By Barnaby Walters (waterpigs.co.uk)
 """
 
 def fetch_all_results(api_url, delay=1.0, ttl=(60 * 60 * 24), cache_location=None):
@@ -70,8 +98,13 @@ def chunks(l, chunk_size):
 	return (l[i:i+chunk_size] for i in range(0, len(l), chunk_size))
 
 if __name__ == "__main__":
-	parser = argparse.ArgumentParser(description='Given an iNaturalist observation export, find species which were only observed by a single person.')
-	parser.add_argument('analysis')
+	parser = argparse.ArgumentParser(
+		formatter_class=argparse.RawDescriptionHelpFormatter,
+		description=DESCRIPTION,
+		epilog=DESRIPTION_EPILOGUE
+	)
+	parser.add_argument('analysis', help='The project ID (i.e. folder name under data/) to analyse')
+	parser.add_argument('--shell', '-s', action='store_true', dest='shell', default=False, help='Rather than exiting the script, end in an interactive IPython shell for further data exploration')
 	args = parser.parse_args()
 
 	config = yaml.safe_load(open(os.path.join('data', args.analysis, 'config.yaml')))
@@ -115,6 +148,7 @@ if __name__ == "__main__":
 
 	f_output = open(os.path.join('data', args.analysis, 'output', 'current', 'index.html'), 'w')
 
+	# Filter JS hard-coded here for now.
 	filter_js = """
 <script>
 (function () {
@@ -131,7 +165,8 @@ if __name__ == "__main__":
 }());
 </script>
 """
-
+	
+	# CSS hard-coded here for now.
 	styles = """
 <style>
 
@@ -168,10 +203,13 @@ body {
 </style>
 """
 
+	# Explanation text hard-coded here for now.
 	f_output.write(f"""
+<title>{html.escape(config['name'])}</title>
+
 {styles}
 								
-<h{root_h_lvl}>{config['name']}</h{root_h_lvl}>
+<h{root_h_lvl}>{html.escape(config['name'])}</h{root_h_lvl}>
 								
 <p>Last updated: {datetime.datetime.now().strftime('%Y-%m-%d')}</p>
 
@@ -195,35 +233,22 @@ body {
 <ol>
     <li>
         <a href="#notable-species">Notable Species</a>
-        <ol>
-            <li>
-                <a href="#wien">Wien</a>
+        <ol>"""
+	)
+
+	for place in places:
+		f_output.write(f"""
+						<li>
+                <a href="#{place['col']}">{html.escape(place['name'])}</a>
                 <ol>
-                    <li><a href="#wien-firsts">First Observations</a></li>
-                    <li><a href="#wien-notable">Notable Observations</a></li>
+                    <li><a href="#{place['col']}-firsts">First Observations</a></li>
+                    <li><a href="#{place['col']}-notable">Notable Observations</a></li>
                 </ol>
             </li>
-            <li>
-                <a href="#at">Austria</a>
-                <ol>
-                    <li><a href="#at-firsts">First Observations</a></li>
-                    <li><a href="#at-notable">Notable Observations</a></li>
-                </ol>
-            </li>
-            <li>
-                <a href="#eu">Europe</a>
-                <ol>
-                    <li><a href="#eu-firsts">First Observations</a></li>
-                    <li><a href="#eu-notable">Notable Observations</a></li>
-                </ol>
-            </li>
-            <li>
-                <a href="#global">iNaturalist Global</a>
-                <ol>
-                    <li><a href="#global-firsts">First Observations</a></li>
-                    <li><a href="#global-notable">Notable Observations</a></li>
-                </ol>
-            </li>
+						"""
+		)
+
+	f_output.write("""
         </ol>
     </li>
     <li><a href="#observers">Unique Taxa per Observer</a></li>
@@ -346,6 +371,7 @@ body {
 				try:
 					species.loc[notable_ix, f"{p_col}_notable"] = species.loc[notable_ix, f"{p_col}_observation_count"] <= p_config.get('observation_threshold', 5)
 				except:
+					print(f"Caught {type(e)}: {e} while trying to determine whether observations of a species were notable.")
 					IPython.embed()
 			else:
 				# No additional data is required for global results, provided they’re processed last.
@@ -360,7 +386,7 @@ body {
 			species = species.loc[~pd.isnull(species.loc[:, 'taxon_id']), :]
 			species.loc[:, 'taxon_id'] = species.loc[:, 'taxon_id'].astype(int)
 
-			f_output.write(f"""<h{root_h_lvl+2} id="{p_col}"><a href="#{p_col}">{p_config['name']}</a></h{root_h_lvl+2}>\n""")
+			f_output.write(f"""<h{root_h_lvl+2} id="{p_col}"><a href="#{p_col}">{html.escape(p_config['name'])}</a></h{root_h_lvl+2}>\n""")
 
 			# Report firsts first (NPI).
 			f_output.write(f"""<h{root_h_lvl+3} id="{p_col}-firsts"><a href="#{p_col}-firsts">First Observations</a> ({species.query(f"{p_col}_first").shape[0]})</h{root_h_lvl+3}>\n""")
@@ -450,6 +476,20 @@ body {
 		f_output.write("</ul></div>\n")
 	f_output.close()
 
+	print(f"Finished creating report. Writing species.csv…")
+
 	species.to_csv(os.path.join('data', args.analysis, 'output', 'current', 'species.csv'), index=None)
 
-	IPython.embed()
+	print(f"""
+
+Analysis complete! Find the HTML report in:
+
+    data/{args.analysis}/output/current/index.html
+
+and the species CSV in:
+
+    data/{args.analysis}/output/current/species.csv
+""")
+
+	if args.shell:
+		IPython.embed()

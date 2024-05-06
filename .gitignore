@@ -1,3 +1,6 @@
-data/
+data/*
+!data/example
+data/example/*
+!data/example/config.yaml
 venv/
 .DS_Store
