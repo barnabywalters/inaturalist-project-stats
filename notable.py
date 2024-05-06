@@ -248,7 +248,7 @@ body {
 						"""
 		)
 
-	f_output.write("""
+	f_output.write(f"""
         </ol>
     </li>
     <li><a href="#observers">Unique Taxa per Observer</a></li>
