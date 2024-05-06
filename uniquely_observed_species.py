@@ -343,7 +343,10 @@ body {
 					]
 				notable_ix = ~pd.isnull(species.loc[:, f"{p_col}_observation_count"])
 				species.loc[notable_ix, f"{p_col}_first"] = species.loc[notable_ix, 'project_observation_count'] == species.loc[notable_ix, f"{p_col}_observation_count"]
-				species.loc[notable_ix, f"{p_col}_notable"] = species.loc[notable_ix, f"{p_col}_observation_count"] <= p_config.get('observation_threshold', 5)
+				try:
+					species.loc[notable_ix, f"{p_col}_notable"] = species.loc[notable_ix, f"{p_col}_observation_count"] <= p_config.get('observation_threshold', 5)
+				except:
+					IPython.embed()
 			else:
 				# No additional data is required for global results, provided they’re processed last.
 				notable_ix = ~pd.isnull(species.loc[:, 'global_observation_count'])
@@ -364,7 +367,7 @@ body {
 			f_output.write(f"""<ul class="observations-container">\n""")
 			for i, tax_row in species.query(f"{p_col}_first").sort_values('scientific_name', ascending=True).iterrows():
 				tid = tax_row['taxon_id']
-				taxa_url = f"https://inaturalist.org/taxa/{tid}"
+				taxa_url = f"https://inaturalist.org/taxa/{int(tid)}"
 				
 				try:
 					# Look for an RG observation first, and prioritise that.
@@ -381,10 +384,10 @@ body {
 			f_output.write(f"""<h{root_h_lvl+3} id="{p_col}-notable"><a href="#{p_col}-notable">Notable Observations</a> ({species.query(f'{p_col}_notable & not {p_col}_first').shape[0]})</h{root_h_lvl+3}>\n""")
 			f_output.write(f"<ul>\n")
 			for i, row in species.query(f'{p_col}_notable & not {p_col}_first').sort_values(f'{p_col}_observation_count', ascending=True).iterrows():
-				obs_url = f"https://www.inaturalist.org/observations?taxon_id={row['taxon_id']}"
+				obs_url = f"https://www.inaturalist.org/observations?taxon_id={int(row['taxon_id'])}"
 				if p_config['id'] != 'global':
 					obs_url = f"{obs_url}&amp;place_id={pids}"
-				taxa_url = f"https://inaturalist.org/taxa/{row['taxon_id']}"
+				taxa_url = f"https://inaturalist.org/taxa/{int(row['taxon_id'])}"
 				
 				rg_observers = list(df.loc[(df.loc[:, 'taxon_id'] == row['taxon_id']) & (df.loc[:, 'quality_grade'] == 'research'), 'user_login'].drop_duplicates())
 				
@@ -396,9 +399,9 @@ body {
 				observers = list(df.loc[df.loc[:, 'taxon_id'] == row['taxon_id'], :].sort_values('time_observed_at', ascending=True).loc[:, 'user_login'].drop_duplicates())
 				for i, observer in enumerate(observers):
 					if observer in rg_observers:
-						f_output.write(f''' <b><a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={row['taxon_id']}&{config['context_query']}">@{observer}</a></b>''')
+						f_output.write(f''' <b><a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={int(row['taxon_id'])}&{config['context_query']}">@{observer}</a></b>''')
 					else:
-						f_output.write(f''' <a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={row['taxon_id']}&{config['context_query']}">@{observer}</a>''')
+						f_output.write(f''' <a href="https://www.inaturalist.org/observations?user_id={observer}&taxon_id={int(row['taxon_id'])}&{config['context_query']}">@{observer}</a>''')
 					if i+1 < len(observers):
 						f_output.write(',')  # No comma after the last observer in the list.
 				f_output.write(f''' (<a href="{obs_url}">{int(row[f'{p_col}_observation_count'])} total</a>)</li>\n''')
@@ -420,9 +423,9 @@ body {
 			t = species.loc[tid]
 
 			if config.get('project'):
-				taxa_url = f"https://www.inaturalist.org/observations?taxon_id={tid}&amp;{config['context_query']}"
+				taxa_url = f"https://www.inaturalist.org/observations?taxon_id={int(tid)}&amp;{config['context_query']}"
 			else:
-				taxa_url = f'https://www.inaturalist.org/taxa/{tid}'
+				taxa_url = f'https://www.inaturalist.org/taxa/{int(tid)}'
 			
 			rgb, rge = ('<b>', '</b>') if tobv.get('has_research_grade') else ('', '')
 			others = f" ({tobv.get('num_other_observers', 0)})" if tobv.get('num_other_observers', 0) > 0 else ''
