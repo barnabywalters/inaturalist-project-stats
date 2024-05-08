@@ -61,7 +61,7 @@ def fetch_all_results(api_url, delay=1.0, ttl=(60 * 60 * 24), cache_location=Non
 			if cache_location is None:
 				raise Exception()
 			cache_path = os.path.join(cache_location, f"{hashlib.md5(req_url.encode('utf-8')).hexdigest()}.json")
-			with open(cache_path) as fp:
+			with open(cache_path, encoding='utf-8') as fp:
 				jresp = json.load(fp)
 				fetched_from_cache = True
 				print('c', end='', flush=True)
@@ -74,7 +74,7 @@ def fetch_all_results(api_url, delay=1.0, ttl=(60 * 60 * 24), cache_location=Non
 			print('.', end='', flush=True)
 			
 			if cache_path is not None:
-				with open(cache_path, 'w') as fp:
+				with open(cache_path, 'w', encoding='utf-8') as fp:
 					json.dump(jresp, fp)
 			
 		if total_results is None:
@@ -107,8 +107,8 @@ if __name__ == "__main__":
 	parser.add_argument('--shell', '-s', action='store_true', dest='shell', default=False, help='Rather than exiting the script, end in an interactive IPython shell for further data exploration')
 	args = parser.parse_args()
 
-	config = yaml.safe_load(open(os.path.join('data', args.analysis, 'config.yaml')))
-	df = pd.read_csv(os.path.join('data', args.analysis, config['file']))
+	config = yaml.safe_load(open(os.path.join('data', args.analysis, 'config.yaml'), encoding='utf-8'))
+	df = pd.read_csv(os.path.join('data', args.analysis, config['file']), encoding='utf-8')
 	root_h_lvl = int(config.get('root_header_level', 1))
 	try:
 		os.mkdir(os.path.join('data', args.analysis, 'output'))
@@ -146,7 +146,7 @@ if __name__ == "__main__":
 	
 	locale = config.get('locale', 'en')
 
-	f_output = open(os.path.join('data', args.analysis, 'output', 'current', 'index.html'), 'w')
+	f_output = open(os.path.join('data', args.analysis, 'output', 'current', 'index.html'), 'w', encoding='utf-8')
 
 	# Filter JS hard-coded here for now.
 	filter_js = """
@@ -370,7 +370,7 @@ body {
 				species.loc[notable_ix, f"{p_col}_first"] = species.loc[notable_ix, 'project_observation_count'] == species.loc[notable_ix, f"{p_col}_observation_count"]
 				try:
 					species.loc[notable_ix, f"{p_col}_notable"] = species.loc[notable_ix, f"{p_col}_observation_count"] <= p_config.get('observation_threshold', 5)
-				except:
+				except Exception as e:
 					print(f"Caught {type(e)}: {e} while trying to determine whether observations of a species were notable.")
 					IPython.embed()
 			else:
