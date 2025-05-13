@@ -1,0 +1,12 @@
+[project]
+name = "inaturalist-project-analyser"
+version = "0.1.0"
+description = "My python scripts for producing project reports from iNaturalist export files. Designed mostly for use with CNC or similar semi-competitive bioblitz projects."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ipython>=9.2.0",
+    "pandas>=2.2.3",
+    "pyyaml>=6.0.2",
+    "requests>=2.32.3",
+]

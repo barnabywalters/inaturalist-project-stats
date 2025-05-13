@@ -20,7 +20,7 @@ root_header_level: 1
 # I use for the Vienna report of City, Country, Continent, Global, each with suitable notability thresholds. You can
 # add more or less as you wish.
 places:
-  - # Place ID
+  - # Place ID. If a project covers multiple places, a comma-separated string of all of them.
     id: '129695'
     # “slug” version of the place name, used internally in column headers, and in the output as fragment IDs for inter-document links.
     col: wien
